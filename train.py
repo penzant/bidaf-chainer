@@ -165,7 +165,7 @@ def main():
     # optimizer
     optimizer = chainer.optimizers.Adam(config.init_lr)
     optimizer.setup(model)
-    optimizer.add_hook(chainer.optimizer.WeightDecay(0.999)) # moving average...
+    # optimizer.add_hook(chainer.optimizer.WeightDecay(0.999)) # moving average...
 
     # iterator
     train_iter = MultiprocessIterator(train_data, config.batch_size, repeat=True, shuffle=True)
