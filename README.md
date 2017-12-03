@@ -17,6 +17,4 @@ python train.py --debug_mode
 ```
 
 TODO:
-* ExponentialMovingAverage
-* Learning rate of AdaDelta
-* Improve performance...
+* Improve performance (what's wrong...?)
