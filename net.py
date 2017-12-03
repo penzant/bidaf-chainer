@@ -7,6 +7,7 @@ import numpy as np
 from chainer import reporter
 
 from utils import softsel, get_logits
+from ema import ExponentialMovingAverage
 
 class CharacterConvolution(chainer.Chain):
 
@@ -27,6 +28,7 @@ class CharacterConvolution(chainer.Chain):
 
 
 class HighwayLayer(chainer.Chain):
+
     def __init__(self, in_out_size, nobias=False, activate=F.relu,
                  init_Wh=None, init_Wt=None, init_bh=None, init_bt=-1):
         super(HighwayLayer, self).__init__()
@@ -48,27 +50,22 @@ class HighwayLayer(chainer.Chain):
                 
                 
 class HighwayNetwork(chainer.Chain):
-    
+
     def __init__(self, config):
         super(HighwayNetwork, self).__init__()
         self.enc_dim = config.enc_dim
 
         with self.init_scope():
-            # self.highway_layers = [HighwayLayer(self.enc_dim)
-            #                        for i in range(config.highway_n_layer)]
             self.highway_layer_1 = HighwayLayer(self.enc_dim)
             self.highway_layer_2 = HighwayLayer(self.enc_dim)
         
         if config.gpu[0] >= 0:
-            # [layer.to_gpu(config.gpu[0]) for layer in self.highway_layers]
             self.highway_layer_1.to_gpu(config.gpu[0])
             self.highway_layer_2.to_gpu(config.gpu[0])
 
     def __call__(self, h):
         org_shape = h.shape
         h = h.reshape((-1, self.enc_dim))
-        # for highway_layer in self.highway_layers:
-        #     h = highway_layer(h)
         hx = self.highway_layer_1(h)
         hy = self.highway_layer_2(hx)
         hz = hy.reshape(list(org_shape[:-1]) + [self.enc_dim])
@@ -94,14 +91,13 @@ class BiLSTM(L.NStepBiLSTM):
         if dropout:
             self.dropout = org_dropout
         ys = F.pad_sequence(ys, x.shape[-2], padding=-0.0)
-        # ys = F.pad_sequence(ys, x.shape[-2], padding=-1024.0)
         ys = ys.reshape(list(x.shape[:-1]) + [-1])
 
         return ys # [..., out_size * 2]
 
 
 class AttentionFlow(chainer.Chain):
-    # TODO: tensordict?
+
     def __init__(self, config):
         super(AttentionFlow, self).__init__()
         with self.init_scope():
@@ -169,8 +165,15 @@ class BiDAF(chainer.Chain):
         self.char_out_dim = config.char_out_dim
         self.skip_word_in_result = config.skip_word_in_result
 
+        self.ema = ExponentialMovingAverage(config.decay_rate)
+        self.ema_init = True
+
 
     def __call__(self, x, cx, x_mask, q, cq, q_mask, y, y2):
+        # exponential moving average
+        if not self.ema_init:
+            self.ema(self)
+
         # embedding
         cx_emb = self.char_emb(cx)
         cq_emb = self.char_emb(cq)
@@ -235,6 +238,10 @@ class BiDAF(chainer.Chain):
                                      yp2.reshape((yp.shape[0], -1)))
 
         reporter.report({'loss': loss, 'match': match, 'f1': f1}, self)
+
+        if self.ema_init:
+            self.ema(self)
+            self.ema_init = False
         
         return loss
         

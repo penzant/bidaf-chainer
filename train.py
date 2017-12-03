@@ -12,6 +12,7 @@ from chainer.training import extensions
 
 from net import BiDAF
 from dataset import SQuADDataset, update_config
+from adadelta import AdaDeltaWithLearningRate
 
 def data_filter(data, config, data_type):
     org_len = len(data['y'])
@@ -118,7 +119,7 @@ def main():
     pa('--display_step', type=int, default=50)
     pa('--eval_step', type=int, default=1000)
 
-    pa('--init_lr', type=float, default=0.0001)
+    pa('--init_lr', type=float, default=0.5)
     pa('--keep_prob', type=float, default=0.8)
     pa('--decay_rate', type=float, default=0.999)
     pa('--dropout_rate', type=float, default=0.2)
@@ -163,9 +164,8 @@ def main():
     # chainer.config.use_cudnn = 'never'
 
     # optimizer
-    optimizer = chainer.optimizers.Adam(config.init_lr)
+    optimizer = AdaDeltaWithLearningRate(lr=config.init_lr, eps=1e-08)
     optimizer.setup(model)
-    # optimizer.add_hook(chainer.optimizer.WeightDecay(0.999)) # moving average...
 
     # iterator
     train_iter = MultiprocessIterator(train_data, config.batch_size, repeat=True, shuffle=True)
@@ -184,7 +184,7 @@ def main():
     print('Iter/epoch =', iter_per_epoch)
 
     log_trigger = (min(10, iter_per_epoch // 2), 'iteration')
-    eval_trigger = (1, 'epoch')
+    eval_trigger = (1000, 'iteration')
     record_trigger = training.triggers.MaxValueTrigger(
         'val/main/f1', eval_trigger)
 
@@ -203,3 +203,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
