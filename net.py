@@ -254,23 +254,25 @@ class BiDAF(chainer.Chain):
         y2_idx = F.argmax(y2 * 1.0, axis=1).data
         yp_idx = F.argmax(yp, axis=1).data
         yp2_idx = F.argmax(yp2, axis=1).data
-        match = np.mean([1 if yi == ypi and y2i == yp2i else 0
-                        for yi, y2i, ypi, yp2i in zip(y_idx, y2_idx, yp_idx, yp2_idx)])
 
         f1 = []
+        match = []
         for idx, (yi, y2i, ypi, yp2i) in enumerate(zip(y_idx, y2_idx, yp_idx, yp2_idx)):
             y_words = [int(w) for w in x[idx][yi:y2i+1]]
             yp_words = [int(w) for w in x[idx][ypi:yp2i+1]]
             y_words = [w for w in y_words if w not in self.skip_word_in_result]
             yp_words = [w for w in yp_words if w not in self.skip_word_in_result]
+            if y_words == yp_words:
+                match.append(1)
+            else:
+                match.append(0)
             common = Counter(y_words) & Counter(yp_words)
             num_same = sum(common.values())
             if num_same == 0:
-                f1i = 0
+                f1.append(0)
             else:
                 precision = 1.0 * num_same / len(yp_words)
                 recall = 1.0 * num_same / len(y_words)
-                f1i = (2 * precision * recall) / (precision + recall)
-            f1.append(f1i)
-        return (match, np.mean(f1))
+                f1.append((2 * precision * recall) / (precision + recall))
+        return (np.mean(match), np.mean(f1))
 
