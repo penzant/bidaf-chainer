@@ -17,4 +17,10 @@ python train.py --debug_mode
 ```
 
 TODO:
-* Improve performance (what's wrong...?)
+* Evaluation is a bit strange? (use the official evaluator)
+
+| 12k steps   | EM (%) | F1 (%) | loss |
+| ----------- |:------:|:------:|:----:|
+| train       | 46.2   | 75.2   | 3.09 |
+| dev         | 44.6   | 76.5   | 3.18 |
+

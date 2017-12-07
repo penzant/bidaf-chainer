@@ -1,0 +1,7 @@
+/logs*/
+/test/
+/main*/
+/__pycache__/
+*.log
+*.out
+*~

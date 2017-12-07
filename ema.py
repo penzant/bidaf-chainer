@@ -20,6 +20,7 @@ class ExponentialMovingAverage(object):
                 self.reset(target)
                 self.is_test = False
             for name, param in target.namedparams():
+                if not param.update_rule.enabled: continue
                 p = param.data
                 n = name
                 if not n in self.avg_dict.keys() or self.avg_dict[n] is None:
@@ -33,10 +34,12 @@ class ExponentialMovingAverage(object):
 
     def average(self, target):
         for name, param in target.namedparams():
+            if not param.update_rule.enabled: continue
             self.org_dict[name] = param.data
             param.data = self.avg_dict[name]
 
     def reset(self, target):
         for name, param in target.namedparams():
+            if not param.update_rule.enabled: continue
             param.data = self.org_dict[name]
 

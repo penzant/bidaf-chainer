@@ -18,9 +18,11 @@ class CharacterConvolution(chainer.Chain):
             s = 1
             out_channel = config.char_conv_n_kernel
             self.conv_layer = L.Convolution2D(None, out_channel, k, s)
+        self.dropout_rate = config.dropout_rate
 
     def __call__(self, h):
         h = h.transpose(0, 3, 1, 2) # NHWC -> NCHW
+        h = F.dropout(h, self.dropout_rate)
         h = F.relu(self.conv_layer(h))
         h = F.max(h.transpose(0, 2, 3, 1), 2) # NCHW -> NHWC
 
@@ -84,11 +86,11 @@ class BiLSTM(L.NStepBiLSTM):
     def __call__(self, x, x_len, dropout=None):
         flat_x = x.reshape([-1] + list(x.shape[-2:]))
         xs = [xx[:int(xl.data),:] for xx, xl in zip(flat_x, x_len.reshape(-1))]
-        if dropout:
+        if dropout is not None:
             org_dropout = self.dropout
             self.dropout = dropout
         hs, cs, ys = super(BiLSTM, self).__call__(None, None, xs)
-        if dropout:
+        if dropout is not None:
             self.dropout = org_dropout
         ys = F.pad_sequence(ys, x.shape[-2], padding=-0.0)
         ys = ys.reshape(list(x.shape[:-1]) + [-1])
@@ -146,7 +148,7 @@ class BiDAF(chainer.Chain):
 
             self.word_enc_dim = config.word_emb_dim + config.char_out_dim
             self.dropout_rate = config.dropout_rate
-            # with chainer.using_config('use_cudnn', 'never'):
+
             self.context_bilstm = BiLSTM(self.word_enc_dim,
                                          config.hidden_size, self.dropout_rate, config) #in=200
 
@@ -165,13 +167,14 @@ class BiDAF(chainer.Chain):
         self.char_out_dim = config.char_out_dim
         self.skip_word_in_result = config.skip_word_in_result
 
-        self.ema = ExponentialMovingAverage(config.decay_rate)
-        self.ema_init = True
-
+        self.no_ema = config.no_ema
+        if not self.no_ema:
+            self.ema = ExponentialMovingAverage(config.decay_rate)
+            self.ema_init = True
 
     def __call__(self, x, cx, x_mask, q, cq, q_mask, y, y2):
         # exponential moving average
-        if not self.ema_init:
+        if not self.no_ema and not self.ema_init:
             self.ema(self)
 
         # embedding
@@ -235,11 +238,11 @@ class BiDAF(chainer.Chain):
                                      y.reshape((y.shape[0], -1)),
                                      y2.reshape((y2.shape[0], -1)),
                                      yp.reshape((yp.shape[0], -1)),
-                                     yp2.reshape((yp.shape[0], -1)))
+                                     yp2.reshape((yp2.shape[0], -1)))
 
         reporter.report({'loss': loss, 'match': match, 'f1': f1}, self)
 
-        if self.ema_init:
+        if not self.no_ema and self.ema_init:
             self.ema(self)
             self.ema_init = False
         

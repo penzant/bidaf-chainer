@@ -7,12 +7,12 @@ import numpy as np
 
 class SQuADDataset(chainer.dataset.DatasetMixin):
 
-    def __init__(self, data, shared_data, config):
+    def __init__(self, data, shared_data, vocab, config):
         self.data = data
         self.shared_data = shared_data
+        self.vocab = vocab
         self.data_keys = self.data.keys()
         self.config = config
-        # self.ret_keys = ['x', 'cx', 'x_mask', 'q', 'cq', 'q_mask', 'y', 'y2']
 
     def __len__(self):
         return len(self.data['*x'])
@@ -23,7 +23,6 @@ class SQuADDataset(chainer.dataset.DatasetMixin):
         for k in self.data.keys():
             if k.startswith('*'):
                 shared_key = k[1:]
-                # data_item[shared_key] = [self.shared_idx(self.shared_data[shared_key], vv) for vv in v]
                 data_item[shared_key] = self.shared_idx(self.shared_data[shared_key], data_item[k])
 
         M = config.max_num_sents
@@ -40,7 +39,7 @@ class SQuADDataset(chainer.dataset.DatasetMixin):
         y = np.zeros([M, JX], dtype='bool')
         y2 = np.zeros([M, JX], dtype='bool')
 
-        start_idx, stop_idx = random.choice(data_item['y'])
+        start_idx, stop_idx = data_item['y'][0] # random.choice(data_item['y'])
         j, k = start_idx
         j2, k2 = stop_idx
         y[j, k] = True
@@ -50,19 +49,14 @@ class SQuADDataset(chainer.dataset.DatasetMixin):
         CX = data_item['cx']
 
         def _get_word(word):
-            d = self.shared_data['word2idx']
+            d = self.vocab['word2idx']
             for each in (word, word.lower(), word.capitalize(), word.upper()):
                 if each in d:
                     return d[each]
-            if config.use_glove_for_unk:
-                d2 = self.shared_data['new_word2idx']
-                for each in (word, word.lower(), word.capitalize(), word.upper()):
-                    if each in d2:
-                        return d2[each] + len(d)
             return 1
 
         def _get_char(char):
-            d = self.shared_data['char2idx']
+            d = self.vocab['char2idx']
             if char in d:
                 return d[char]
             return 1
@@ -105,7 +99,7 @@ class SQuADDataset(chainer.dataset.DatasetMixin):
         return self.shared_idx(l[i[0]], i[1:]) if len(i) > 1 else l[i[0]]
 
 
-def update_config(config, datasets):
+def update_config(config, datasets, vocab):
     config.max_num_sents = 0
     config.max_sent_size = 0
     config.max_ques_size = 0
@@ -114,7 +108,7 @@ def update_config(config, datasets):
     for data_set in datasets:
         data = data_set.data
         shared = data_set.shared_data
-        for idx in range(len(data_set.data['*x'])): #.valid_idxs:
+        for idx in range(len(data_set.data['*x'])):
             rx = data['*x'][idx]
             q = data['q'][idx]
             sents = shared['x'][rx[0]][rx[1]]
@@ -126,20 +120,23 @@ def update_config(config, datasets):
                 config.max_ques_size = max(config.max_ques_size, len(q))
                 config.max_word_size = max(config.max_word_size, max(len(word) for word in q))
 
-    # if config.mode == 'train':
     config.max_num_sents = min(config.max_num_sents, config.num_sents_th)
     config.max_sent_size = min(config.max_sent_size, config.sent_size_th)
     config.max_para_size = min(config.max_para_size, config.para_size_th)
 
     config.max_word_size = min(config.max_word_size, config.word_size_th)
 
-    config.char_vocab_size = len(datasets[0].shared_data['char2idx'])
-    config.word_emb_size = len(next(iter(datasets[0].shared_data['word2vec'].values())))
-    config.word_vocab_size = len(datasets[0].shared_data['new_word2idx'])
+    config.char_vocab_size = len(vocab['char2idx'])
+    config.word_emb_size = len(next(iter(vocab['word2vec'].values())))
+    config.word_vocab_size = len(vocab['word2idx'])
 
-    skip_word_in_result = [datasets[0].shared_data['new_word2idx'][w]
-                           for w in list(string.punctuation) + ['a', 'an', 'the'] if w in datasets[0].shared_data['new_word2idx'].keys()]
+    config.word_emb = vocab['emb_mat']
+
+    skip_word = list(string.punctuation) + ['a', 'an', 'the', '']
+    skip_word_in_result = [vocab['word2idx'][w]
+                           for w in skip_word if w in vocab['word2idx']]
     config.skip_word_in_result = skip_word_in_result
 
 
     return config
+
