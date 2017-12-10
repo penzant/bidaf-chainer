@@ -16,11 +16,10 @@ For debugging with a small data:
 python train.py --debug_mode
 ```
 
-TODO:
-* Evaluation is a bit strange? (use the official evaluator)
+##### Result (not official evaluation)
 
-| 12k steps   | EM (%) | F1 (%) | loss |
+| 17.5k steps | EM (%) | F1 (%) | loss |
 | ----------- |:------:|:------:|:----:|
-| train       | 46.2   | 75.2   | 3.09 |
-| dev         | 44.6   | 76.5   | 3.18 |
+| train       | 54.5   | 77.3   | 2.64 |
+| dev         | 51.0   | 76.7   | 3.16 |
 
