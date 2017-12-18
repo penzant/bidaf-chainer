@@ -18,9 +18,9 @@ python train.py --debug_mode
 
 ##### Result (not official evaluation)
 
-| 10k steps | EM (%) | F1 (%) | loss |
+| dataset | EM (%) | F1 (%) | loss |
 | ----------- |:------:|:------:|:----:|
-| train (this repo) | 65.3   | 79.3   | 1.83 |
-| dev (this repo) | 55.1   | 70.1   | 2.81 |
+| train (this repo, 10k) | 65.3   | 79.3   | 1.83 |
+| dev (this repo, 10k) | 55.1   | 70.1   | 2.81 |
 | dev (original) | (67.7) | (77.3) | (-) |
 
