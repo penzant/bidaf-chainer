@@ -14,7 +14,10 @@ class ExponentialMovingAverage(object):
         self.is_test = False
         self.init = False
 
-    def __call__(self, target):
+    def __call__(self, target, device=None):
+        if device:
+            import cupy as xp
+            xp.cuda.Device(device).use()
         if chainer.config.train:
             if self.is_test:
                 self.reset(target)

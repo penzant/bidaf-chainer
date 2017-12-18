@@ -11,7 +11,6 @@ class SQuADDataset(chainer.dataset.DatasetMixin):
         self.data = data
         self.shared_data = shared_data
         self.vocab = vocab
-        self.data_keys = self.data.keys()
         self.config = config
 
     def __len__(self):
@@ -38,6 +37,8 @@ class SQuADDataset(chainer.dataset.DatasetMixin):
         q_mask = np.zeros([JQ], dtype='bool')
         y = np.zeros([M, JX], dtype='bool')
         y2 = np.zeros([M, JX], dtype='bool')
+
+        ids = data_item['ids'] # for logging of results
 
         start_idx, stop_idx = data_item['y'][0] # random.choice(data_item['y'])
         j, k = start_idx
@@ -92,8 +93,10 @@ class SQuADDataset(chainer.dataset.DatasetMixin):
                 cq[j, k] = _get_char(cqijk)
                 if k + 1 == config.max_word_size:
                     break
-        
-        return (x, cx, x_mask, q, cq, q_mask, y, y2)
+
+        ys = [[y[0][1], y[1][1]] for y in data_item['y']]
+
+        return (x, cx, x_mask, q, cq, q_mask, y, y2, ids, ys)
 
     def shared_idx(self, l, i):
         return self.shared_idx(l[i[0]], i[1:]) if len(i) > 1 else l[i[0]]
@@ -130,6 +133,8 @@ def update_config(config, datasets, vocab):
     config.word_emb_size = len(next(iter(vocab['word2vec'].values())))
     config.word_vocab_size = len(vocab['word2idx'])
 
+    config.idx2word = vocab['idx2word']
+    config.word2idx = vocab['word2idx']
     config.word_emb = vocab['emb_mat']
 
     skip_word = list(string.punctuation) + ['a', 'an', 'the', '']

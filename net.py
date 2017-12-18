@@ -9,6 +9,7 @@ from chainer import reporter
 from utils import softsel, get_logits
 from ema import ExponentialMovingAverage
 
+
 class CharacterConvolution(chainer.Chain):
 
     def __init__(self, config):
@@ -48,6 +49,7 @@ class HighwayLayer(chainer.Chain):
         out_plain = self.activate(self.plain(x))
         out_transform = F.sigmoid(self.transform(x))
         y = out_plain * out_transform + x * (1 - out_transform)
+
         return y
                 
                 
@@ -58,12 +60,12 @@ class HighwayNetwork(chainer.Chain):
         self.enc_dim = config.enc_dim
 
         with self.init_scope():
-            self.highway_layer_1 = HighwayLayer(self.enc_dim)
-            self.highway_layer_2 = HighwayLayer(self.enc_dim)
-        
-        if config.gpu[0] >= 0:
-            self.highway_layer_1.to_gpu(config.gpu[0])
-            self.highway_layer_2.to_gpu(config.gpu[0])
+            self.highway_layer_1 = HighwayLayer(self.enc_dim, init_bt=None)
+            self.highway_layer_2 = HighwayLayer(self.enc_dim, init_bt=None)
+
+        # if config.gpu[0] >= 0:
+        #     self.highway_layer_1.to_gpu(config.gpu[0])
+        #     self.highway_layer_2.to_gpu(config.gpu[0])
 
     def __call__(self, h):
         org_shape = h.shape
@@ -80,8 +82,8 @@ class BiLSTM(L.NStepBiLSTM):
     def __init__(self, in_size, out_size, dropout_rate, config):
         with self.init_scope():
             super(BiLSTM, self).__init__(1, in_size, out_size, dropout_rate)
-        if config.gpu[0] >= 0:
-            self.to_gpu(config.gpu[0])
+        # if config.gpu[0] >= 0:
+        #     self.to_gpu(config.gpu[0])
 
     def __call__(self, x, x_len, dropout=None):
         flat_x = x.reshape([-1] + list(x.shape[-2:]))
@@ -130,6 +132,7 @@ class AttentionFlow(chainer.Chain):
     def __call__(self, h, u, h_mask, u_mask):
         u_a, h_a = self.bi_attention(h, u, h_mask, u_mask)
         p0 = F.concat((h, u_a, h * u_a, h * h_a), 3)
+
         return p0
         
         
@@ -172,10 +175,15 @@ class BiDAF(chainer.Chain):
             self.ema = ExponentialMovingAverage(config.decay_rate)
             self.ema_init = True
 
+        self.multi_gpu = len(config.gpu) > 1
+
     def __call__(self, x, cx, x_mask, q, cq, q_mask, y, y2):
         # exponential moving average
+        if self.multi_gpu:
+            import cupy as xp
+            xp.cuda.Device(x.device).use()
         if not self.no_ema and not self.ema_init:
-            self.ema(self)
+            self.ema(self, x.device)
 
         # embedding
         cx_emb = self.char_emb(cx)
@@ -198,8 +206,8 @@ class BiDAF(chainer.Chain):
         qq = self.highway_network(qq)
 
         # contextual
-        x_len = F.sum(x_mask * 1.0, 2) # bool to int
-        q_len = F.cast(F.sum(q_mask * 1.0, 1), 'f')
+        x_len = F.sum(x_mask.astype('f'), 2)
+        q_len = F.sum(q_mask.astype('f'), 1)
 
         h = self.context_bilstm(xx, x_len, 0.0)
         u = self.context_bilstm(qq, q_len)
@@ -227,36 +235,39 @@ class BiDAF(chainer.Chain):
         yp2 = flat_yp2.reshape((-1, g1s[1], g1s[2]))
 
         # loss
-        loss1 = F.softmax_cross_entropy(flat_logits, F.argmax(y.reshape((-1, g1s[1] * g1s[2])) * 1.0, axis=1), reduce='no')
-        loss_mask = F.max(F.cast(q_mask * 1.0, 'f'), axis=1)
+        loss1 = F.softmax_cross_entropy(flat_logits,
+                                        F.argmax(y.reshape((-1, g1s[1] * g1s[2])).astype('f'), axis=1), reduce='no')
+        loss_mask = F.max(q_mask.astype('f'), axis=1)
         loss1 = F.mean(loss_mask * loss1)
-        loss2 = F.softmax_cross_entropy(flat_logits2, F.argmax(y2.reshape((-1, g1s[1] * g1s[2])) * 1.0, axis=1), reduce='no')
+        loss2 = F.softmax_cross_entropy(flat_logits2,
+                                        F.argmax(y2.reshape((-1, g1s[1] * g1s[2])).astype('f'), axis=1), reduce='no')
         loss2 = F.mean(loss_mask * loss2)
         loss = loss1 + loss2
 
-        match, f1 = self.calc_result(x.reshape((x.shape[0], -1)),
-                                     y.reshape((y.shape[0], -1)),
-                                     y2.reshape((y2.shape[0], -1)),
-                                     yp.reshape((yp.shape[0], -1)),
-                                     yp2.reshape((yp2.shape[0], -1)))
+        match, f1, pred = self.calc_result(x.reshape((x.shape[0], -1)),
+                                           y.reshape((y.shape[0], -1)),
+                                           y2.reshape((y2.shape[0], -1)),
+                                           yp.reshape((yp.shape[0], -1)),
+                                           yp2.reshape((yp2.shape[0], -1)))
 
         reporter.report({'loss': loss, 'match': match, 'f1': f1}, self)
 
         if not self.no_ema and self.ema_init:
-            self.ema(self)
+            self.ema(self, x.device)
             self.ema_init = False
-        
-        return loss
-        
+
+        if chainer.config.train:
+            return loss
+        else:
+            return loss, match, f1, pred
 
     def calc_result(self, x, y, y2, yp, yp2):
-        y_idx = F.argmax(y * 1.0, axis=1).data
-        y2_idx = F.argmax(y2 * 1.0, axis=1).data
+        y_idx = F.argmax(y.astype('f'), axis=1).data
+        y2_idx = F.argmax(y2.astype('f'), axis=1).data
         yp_idx = F.argmax(yp, axis=1).data
         yp2_idx = F.argmax(yp2, axis=1).data
 
-        f1 = []
-        match = []
+        match, f1, pred = [], [], []
         for idx, (yi, y2i, ypi, yp2i) in enumerate(zip(y_idx, y2_idx, yp_idx, yp2_idx)):
             y_words = [int(w) for w in x[idx][yi:y2i+1]]
             yp_words = [int(w) for w in x[idx][ypi:yp2i+1]]
@@ -274,5 +285,19 @@ class BiDAF(chainer.Chain):
                 precision = 1.0 * num_same / len(yp_words)
                 recall = 1.0 * num_same / len(y_words)
                 f1.append((2 * precision * recall) / (precision + recall))
-        return (np.mean(match), np.mean(f1))
+            pred.append(yp_words)
+
+        return (np.mean(match), np.mean(f1), pred)
+
+    def serialize(self, serializer):
+        super(BiDAF, self).serialize(serializer)
+
+        if not self.no_ema:
+            if type(serializer) == chainer.serializers.npz.NpzDeserializer:
+                self.ema.avg_dict = np.expand_dims(serializer('avg_dict', None), 1)[0]
+                self.ema.org_dict = np.expand_dims(serializer('org_dict', None), 1)[0]
+                self.ema_init = False
+            else:
+                serializer('avg_dict', self.ema.avg_dict)
+                serializer('org_dict', self.ema.org_dict)
 

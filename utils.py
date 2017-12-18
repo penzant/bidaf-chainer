@@ -7,7 +7,7 @@ xp = cuda.cupy
 
 def exp_mask(val, mask):
     xp = cuda.get_array_module(val)
-    return val + (1 - xp.asarray(mask, xp.float32)) * -1e-30  # add is ok?
+    return val + (1 - xp.asarray(mask, xp.float32)) * -1e30
     
 def softmax(logits, mask=None):
     if mask is not None:
@@ -44,9 +44,8 @@ def flat_linear(layer, args, squeeze=False, drop_rate=0.0):
 
 def linear_logits(layer, args, mask=None, drop_rate=0.0):
     logits = flat_linear(layer, args, squeeze=True, drop_rate=drop_rate)
-    # logits = flat_linear(layer, args, drop_rate=drop_rate)
     if mask is not None:
-        logits = exp_mask(logits, mask) # mask=(N,48,48)
+        logits = exp_mask(logits, mask)
     return logits
 
 def get_logits(layer, args, mask=None, func='tri_linear', drop_rate=0.0):
@@ -54,7 +53,4 @@ def get_logits(layer, args, mask=None, func='tri_linear', drop_rate=0.0):
         new_arg = args[0] * args[1]
         args.append(new_arg)
     return linear_logits(layer, args, mask=mask, drop_rate=drop_rate)
-
-def trace(log):
-    print(log)
 
